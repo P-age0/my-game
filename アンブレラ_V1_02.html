@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>フォールダッシュ</title>
+<style>
+:root{--bg:#e8edf4;--fg:#1b2430;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151d;--fg:#e8edf4}}
+:root[data-theme="dark"]{--bg:#10151d;--fg:#e8edf4}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic",sans-serif;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+#wrap{position:relative;height:96%;max-width:100%;aspect-ratio:9/16}
+canvas{width:100%;height:100%;border-radius:14px;display:block;touch-action:none}
+#over{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(10,14,22,.62);border-radius:14px;color:#fff;text-align:center}
+#over h2{margin:0;font-size:32px}
+#over p{margin:0;font-size:18px}
+#retry{margin-top:10px;padding:14px 28px;font-size:18px;font-weight:700;border:0;border-radius:999px;background:#ffcc33;color:#1b2430;cursor:pointer}
+#retry:active{transform:scale(.96)}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="360" height="640"></canvas>
+  <div id="over">
+    <h2>ゲームオーバー</h2>
+    <p>スコア：<b id="fs">0</b></p>
+    <p>ベスト：<b id="bs">0</b></p>
+    <button id="retry">もう一度プレイ</button>
+  </div>
+</div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const W=360,H=640,R=11,PY=170,TH=24,SPACING=230;
+const over=document.getElementById('over');
+let state='ready',px,dir,rows,depth,score,best=0,speed,last=0,trail,gauge,power,parts,bonus,pops,inv;
+const FILL_TIME=12,POWER_TIME=3.5;
+
+function reset(){
+  px=W/2;dir=1;depth=0;score=0;speed=150;trail=[];rows=[];gauge=0;power=false;parts=[];bonus=0;pops=[];inv=0;
+  let y=430,gx=W/2;
+  while(y<H+SPACING){rows.push(newRow(y,gx));gx=rows[rows.length-1].gx;y+=SPACING}
+}
+function newRow(y,prev){
+  const gw=Math.max(100,135-score*0.6);
+  let gx=prev+(Math.random()*2-1)*170;
+  gx=Math.min(W-gw/2-12,Math.max(gw/2+12,gx));
+  return{y,gx,gw};
+}
+function flip(){
+  if(state==='ready'){state='play';return}
+  if(state==='play')dir=-dir;
+}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();flip()});
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();if(state==='over')restart();else flip()}});
+document.getElementById('retry').addEventListener('click',restart);
+function restart(){over.style.display='none';reset();state='ready'}
+
+function update(dt){
+  speed=(150+Math.min(score*2.2,170))*(power?1.5:1);
+  px+=dir*(190+Math.min(score,60))*dt;
+  if(px<R){px=R;dir=1}
+  if(px>W-R){px=W-R;dir=-1}
+  depth+=speed*dt;
+  score=Math.floor(depth/40)+bonus;
+  pops.forEach(p=>{p.y-=60*dt;p.life-=dt});
+  pops=pops.filter(p=>p.life>0);
+  if(inv>0)inv=Math.max(0,inv-dt);
+  if(power){gauge-=dt/POWER_TIME;if(gauge<=0){gauge=0;power=false;inv=1}}
+  else{gauge+=dt/FILL_TIME;if(gauge>=1){gauge=1;power=true}}
+  parts.forEach(p=>{p.x+=p.vx*dt;p.y+=(p.vy-speed)*dt;p.vy+=900*dt;p.life-=dt});
+  parts=parts.filter(p=>p.life>0);
+  trail.push({x:px,y:PY});
+  trail.forEach(t=>t.y-=speed*dt);
+  trail=trail.filter(t=>t.y>-20);
+  for(const r of rows)r.y-=speed*dt;
+  while(rows[0]&&rows[0].y<-TH)rows.shift();
+  const l=rows[rows.length-1];
+  if(l.y<H+20)rows.push(newRow(l.y+SPACING,l.gx));
+  for(const r of rows){
+    if(!r.broken&&inv<=0&&Math.abs(r.y-PY)<TH/2+R-2){
+      if(px-R+2<r.gx-r.gw/2||px+R-2>r.gx+r.gw/2){if(power){breakRow(r)}else{gameOver();return}}
+    }
+  }
+}
+function breakRow(r){
+  r.broken=true;
+  bonus+=5;pops.push({x:px,y:PY-22,life:.8});
+  for(let i=0;i<22;i++)parts.push({x:px+(Math.random()-.5)*70,y:r.y+(Math.random()-.5)*TH,vx:(Math.random()-.5)*320,vy:-Math.random()*260,life:.5+Math.random()*.5,s:4+Math.random()*6});
+}
+function gameOver(){
+  state='over';
+  best=Math.max(best,score);
+  document.getElementById('fs').textContent=score;
+  document.getElementById('bs').textContent=best;
+  over.style.display='flex';
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#5db7ff');g.addColorStop(1,'#2a4a9e');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ff6b6b';
+  for(const r of rows){
+    if(r.broken)continue;
+    rr(0,r.y-TH/2,r.gx-r.gw/2,TH,6);
+    rr(r.gx+r.gw/2,r.y-TH/2,W-(r.gx+r.gw/2),TH,6);
+  }
+  trail.forEach((t,i)=>{ctx.globalAlpha=i/trail.length*.35;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(t.x,t.y,R*.7,0,7);ctx.fill()});
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#ff6b6b';
+  parts.forEach(p=>{ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillRect(p.x-p.s/2,p.y-p.s/2,p.s,p.s)});
+  ctx.globalAlpha=1;
+  if(power){ctx.fillStyle='rgba(255,140,40,.35)';ctx.beginPath();ctx.arc(px,PY,R+9+Math.sin(last/60)*3,0,7);ctx.fill()}
+  const vis=!(inv>0&&Math.floor(inv*12)%2);
+  ctx.fillStyle=power?'#ff9a1f':'#ffcc33';if(vis){ctx.beginPath();ctx.arc(px,PY,R,0,7);ctx.fill()}
+  ctx.fillStyle='#fff';ctx.font='700 18px system-ui,sans-serif';ctx.textAlign='center';
+  pops.forEach(p=>{ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillText('+5',p.x,p.y)});ctx.globalAlpha=1;
+  if(vis){ctx.fillStyle='#1b2430';ctx.beginPath();ctx.arc(px+dir*4,PY-2,2.5,0,7);ctx.fill()}
+  ctx.fillStyle='#fff';ctx.textAlign='center';
+  ctx.font='700 44px system-ui,sans-serif';ctx.fillText(score,W/2,70);
+  ctx.font='14px system-ui,sans-serif';ctx.fillText('ベスト '+Math.max(best,score),W/2,92);
+  const bw=200,bx=(W-bw)/2,by=104;
+  ctx.fillStyle='rgba(255,255,255,.25)';rr(bx,by,bw,12,6);
+  ctx.fillStyle=power?'#ff9a1f':'#7dffb0';rr(bx,by,Math.max(0,bw*gauge),12,6);
+  ctx.fillStyle='#fff';ctx.font='700 12px system-ui,sans-serif';
+  ctx.fillText(power?'ブレイク中！ 壁を壊して進め':'ゲージ（満タンで壁を破壊）',W/2,134);
+  if(state==='ready'){
+    ctx.fillStyle='rgba(10,14,22,.5)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#fff';ctx.font='700 26px system-ui,sans-serif';ctx.fillText('タップでスタート',W/2,H/2-10);
+    ctx.font='15px system-ui,sans-serif';ctx.fillText('タップ／クリックで左右の向きを切り替え',W/2,H/2+22);
+    ctx.fillText('落ちるとゲージが貯まり、満タンで壁を壊せる！',W/2,H/2+46);
+  }
+}
+function loop(t){
+  const dt=Math.min((t-last)/1000||0,.033);last=t;
+  if(state==='play')update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
